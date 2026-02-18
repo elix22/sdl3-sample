@@ -213,3 +213,144 @@ void sokol_shutdown(void)
     sg_shutdown();
 }
 
+// ---------------------------------------------------------------------------
+// NV12 camera background quad
+// ---------------------------------------------------------------------------
+
+static struct {
+    sg_image    y_img;
+    sg_image    uv_img;
+    sg_view y_view;
+    sg_view uv_view;
+    sg_sampler  smp;
+    sg_pipeline pip;
+    sg_bindings bind;
+    int         width;
+    int         height;
+} s_cam = {};
+
+void nv12_camera_update(SDL_Surface* surface) {
+    if (!surface) return;
+
+    int w = surface->w;
+    int h = surface->h;
+    const uint8_t* yPlane  = (const uint8_t*)surface->pixels;
+    const uint8_t* uvPlane = yPlane + surface->pitch * h;
+
+    if (s_cam.width != w || s_cam.height != h) {
+        if (s_cam.width > 0) {
+            sg_destroy_image(s_cam.y_img);
+            sg_destroy_image(s_cam.uv_img);
+            sg_destroy_sampler(s_cam.smp);
+            sg_destroy_buffer(s_cam.bind.vertex_buffers[0]);
+            sg_destroy_buffer(s_cam.bind.index_buffer);
+            sg_destroy_pipeline(s_cam.pip);
+        }
+        s_cam.width  = w;
+        s_cam.height = h;
+
+        // Y plane: R8, full resolution, streaming
+        sg_image_desc y_desc{};
+        y_desc.width              = w;
+        y_desc.height             = h;
+        y_desc.pixel_format       = SG_PIXELFORMAT_R8;
+        y_desc.usage.stream_update = true;
+        y_desc.label              = "camera-y";
+        s_cam.y_img = sg_make_image(&y_desc);
+        
+        sg_view_desc y_view_desc = {0};
+        sg_texture_view_desc _sg_texture_view_desc={0};
+        _sg_texture_view_desc.image = s_cam.y_img;
+        y_view_desc.texture = _sg_texture_view_desc;
+        y_view_desc.label = "view-camera-y";
+        s_cam.y_view = sg_make_view(&y_view_desc);
+
+        // UV plane: RG8, half resolution, streaming
+        // NV12 interleaved UV = w/2 pixels * 2 bytes = w bytes per row (same pitch as Y)
+        sg_image_desc uv_desc{};
+        uv_desc.width              = w / 2;
+        uv_desc.height             = h / 2;
+        uv_desc.pixel_format       = SG_PIXELFORMAT_RG8;
+        uv_desc.usage.stream_update = true;
+        uv_desc.label              = "camera-uv";
+        s_cam.uv_img = sg_make_image(&uv_desc);
+        
+        sg_view_desc uv_view_desc = {0};
+        sg_texture_view_desc _sg_uv_texture_view_desc={0};
+        _sg_uv_texture_view_desc.image = s_cam.uv_img;
+        uv_view_desc.texture = _sg_uv_texture_view_desc;
+        uv_view_desc.label = "view-camera-uv";
+        s_cam.uv_view = sg_make_view(&uv_view_desc);
+
+        // Sampler: linear, clamp
+        sg_sampler_desc smp_desc{};
+        smp_desc.min_filter = SG_FILTER_LINEAR;
+        smp_desc.mag_filter = SG_FILTER_LINEAR;
+        smp_desc.wrap_u     = SG_WRAP_CLAMP_TO_EDGE;
+        smp_desc.wrap_v     = SG_WRAP_CLAMP_TO_EDGE;
+        s_cam.smp = sg_make_sampler(&smp_desc);
+
+        // Fullscreen quad: two triangles covering NDC [-1,1]
+        // UV y=1 at bottom in NDC, y=0 at top → matches top-down scanline order
+        float verts[] = {
+            -1.0f, -1.0f,  0.0f, 1.0f,
+             1.0f, -1.0f,  1.0f, 1.0f,
+             1.0f,  1.0f,  1.0f, 0.0f,
+            -1.0f,  1.0f,  0.0f, 0.0f,
+        };
+        sg_buffer_desc vbuf_desc{};
+        vbuf_desc.data  = SG_RANGE(verts);
+        vbuf_desc.label = "camera-quad-vb";
+        sg_buffer vbuf = sg_make_buffer(&vbuf_desc);
+
+        uint16_t indices[] = { 0, 1, 2,  0, 2, 3 };
+        sg_buffer_desc ibuf_desc{};
+        ibuf_desc.usage.index_buffer = true;
+        ibuf_desc.data  = SG_RANGE(indices);
+        ibuf_desc.label = "camera-quad-ib";
+        sg_buffer ibuf = sg_make_buffer(&ibuf_desc);
+
+        // Pipeline — no depth test (background quad)
+        sg_pipeline_desc pip_desc{};
+        pip_desc.shader = sg_make_shader(camera_texture_shader_desc(sg_query_backend()));
+        pip_desc.layout.attrs[ATTR_camera_texture_camera_texture_position].format  = SG_VERTEXFORMAT_FLOAT2;
+        pip_desc.layout.attrs[ATTR_camera_texture_camera_texture_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+        pip_desc.index_type          = SG_INDEXTYPE_UINT16;
+        pip_desc.depth.write_enabled = false;
+        pip_desc.depth.compare       = SG_COMPAREFUNC_ALWAYS;
+        pip_desc.label = "camera-texture-pip";
+        s_cam.pip = sg_make_pipeline(&pip_desc);
+
+        // Bindings
+        s_cam.bind = sg_bindings{};
+        s_cam.bind.vertex_buffers[0]                   = vbuf;
+        s_cam.bind.index_buffer                        = ibuf;
+        
+        s_cam.bind.views[VIEW_camera_texture_tex_y]   = s_cam.y_view;
+        s_cam.bind.views[VIEW_camera_texture_tex_uv]  = s_cam.uv_view;
+        s_cam.bind.samplers[SMP_camera_texture_smp_y]  = s_cam.smp;
+        s_cam.bind.samplers[SMP_camera_texture_smp_uv] = s_cam.smp;
+    }
+
+    // Upload Y plane
+    sg_image_data y_data{};
+    sg_range range = {0};
+    range.ptr = yPlane;
+    range.size = (size_t)(surface->pitch * h);
+    y_data.mip_levels[0] = range;
+    sg_update_image(s_cam.y_img, y_data);
+
+    // Upload UV plane (same pitch as Y, h/2 rows)
+    sg_image_data uv_data{};
+    range.ptr = uvPlane;
+    range.size = (size_t)(surface->pitch * h / 2);
+    uv_data.mip_levels[0] = range;
+    sg_update_image(s_cam.uv_img, uv_data);
+}
+
+void nv12_camera_draw(void) {
+    if (s_cam.width == 0) return;
+    sg_apply_pipeline(s_cam.pip);
+    sg_apply_bindings(&s_cam.bind);
+    sg_draw(0, 6, 1);
+}

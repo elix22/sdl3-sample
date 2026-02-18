@@ -31,6 +31,8 @@ void sokol_set_window(SDL_Window* window);
 
 void cube_init(void);
 void cube_frame(float w, float h,float t);
+void nv12_camera_update(SDL_Surface* surface);
+void nv12_camera_draw(void);
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
@@ -473,6 +475,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
         /* Update SDL_Texture with last video frame (only once per new frame) */
         if (frame_current && !texture_updated) {
             SDL_UpdateTexture(texture, NULL, frame_current->pixels, frame_current->pitch);
+            nv12_camera_update(frame_current);
             texture_updated = true;
         }
 
@@ -493,7 +496,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     if(win_w > 0 && win_h > 0)
     {
         sokol_begin_pass();
-        // Sokol render pass (cube + any 3D geometry)
+        nv12_camera_draw();  // background: NV12 camera quad
         cube_frame(win_w,win_h,1.0f / 60.0f);
         sokol_commit();
     }

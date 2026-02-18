@@ -17,6 +17,20 @@
 #ifdef __ANDROID__
 #include <SDL3/SDL_system.h>
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#include <SDL3/SDL_metal.h>
+#endif
+
+// Forward declarations from sokol.cpp
+void sokol_init(void);
+void sokol_begin_pass(void);
+void sokol_commit(void);
+void sokol_shutdown(void);
+void sokol_set_window(SDL_Window* window);
+
+void cube_init(void);
+void cube_frame(float w, float h,float t);
 
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
@@ -122,6 +136,27 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 
     state->num_windows = 1;
 
+    // Configure graphics backend before window/renderer creation
+#if defined(__APPLE__)
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
+#elif defined(__ANDROID__)
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengles2");
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#else
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+#endif
+
     /* Load the SDL library */
     SDL_Log("Calling SDLTest_CommonInit...");
     if (!SDLTest_CommonInit(state)) {
@@ -136,6 +171,12 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         return SDL_APP_FAILURE;
     }
     SDL_Log("Window created successfully");
+
+    // Initialize Sokol with the SDL window
+    // On non-Apple, SDLTest's OpenGL renderer already created the GL context — Sokol uses it directly
+    sokol_set_window(window);
+    sokol_init();
+    cube_init();
 
     renderer = state->renderers[0];
     if (!renderer) {
@@ -260,7 +301,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 }
 
 
-static int FlipCamera(void)
+static SDL_AppResult FlipCamera(void)
 {
     static Uint64 last_flip = 0;
     if ((SDL_GetTicks() - last_flip) < 3000) {  /* must wait at least 3 seconds between flips. */
@@ -331,6 +372,7 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
             return SDL_APP_SUCCESS;
 
         case SDL_EVENT_CAMERA_DEVICE_APPROVED:
+        {
             SDL_Log("Camera approved!");
             SDL_CameraSpec camera_spec;
             SDL_GetCameraFormat(camera, &camera_spec);
@@ -341,11 +383,14 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
             SDL_Log("Camera Spec: %dx%d %.2f FPS %s",
                     camera_spec.width, camera_spec.height, fps, SDL_GetPixelFormatName(camera_spec.format));
             break;
+        }
 
         case SDL_EVENT_CAMERA_DEVICE_DENIED:
+        
             SDL_Log("Camera denied!");
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Camera permission denied!", "User denied access to the camera!", window);
             return SDL_APP_FAILURE;
+        
         default:
             break;
     }
@@ -445,6 +490,17 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     }
 
     /* !!! FIXME: Render a "flip" icon if front_camera and back_camera are both != 0. */
+    if(win_w > 0 && win_h > 0)
+    {
+        sokol_begin_pass();
+        // Sokol render pass (cube + any 3D geometry)
+        cube_frame(win_w,win_h,1.0f / 60.0f);
+        sokol_commit();
+    }
+
+#if !defined(__APPLE__)
+    SDL_GL_SwapWindow(window);
+#endif
 
     SDL_RenderPresent(renderer);
 
@@ -453,6 +509,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result)
 {
+    sokol_shutdown();
     SDL_ReleaseCameraFrame(camera, frame_current);
     SDL_CloseCamera(camera);
     SDL_DestroyTexture(texture);

@@ -39,8 +39,17 @@ endif()
 # Add your sources to the target
 target_sources(${EXECUTABLE_NAME} 
 PRIVATE 
-    src/testcamera.c
+    src/testcamera.cpp
+    src/sokol.cpp
+    src/cube.cpp
     src/iosLaunchScreen.storyboard
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/cimgui.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/imgui_demo.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/imgui_draw.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/imgui_tables.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/imgui_widgets.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src/imgui.cpp
+
 )
 # What is iosLaunchScreen.storyboard? This file describes what Apple's mobile platforms
 # should show the user while the application is starting up. If you don't include one,
@@ -52,6 +61,12 @@ PRIVATE
 # Afterward, the image file in Info.plist.in.
 if(APPLE)
     target_sources("${EXECUTABLE_NAME}" PRIVATE "src/logo.png")
+endif()
+
+# On Apple platforms, sokol_gfx.h includes Metal/ObjC headers, so sokol.cpp must
+# be compiled as Objective-C++ (even though the file extension is .cpp).
+if(APPLE)
+    set_source_files_properties(src/sokol.cpp src/cube.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
 # Set C++ version
@@ -100,6 +115,38 @@ target_link_libraries(${EXECUTABLE_NAME} PUBLIC
 	SDL3_image::SDL3_image	# remove if you are not using SDL_image
 	SDL3::SDL3_test         # SDL test utilities
     SDL3::SDL3              # If using satelite libraries, SDL must be the last item in the list. 
+)
+
+if(APPLE)
+    if(IOS)
+        target_link_libraries(${EXECUTABLE_NAME} PUBLIC
+            "-framework UIKit"
+            "-framework QuartzCore"
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework Foundation"
+        )
+    else()
+        target_link_libraries(${EXECUTABLE_NAME} PUBLIC
+            "-framework Cocoa"
+            "-framework QuartzCore"
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework AudioToolbox"
+            "-framework AVFoundation"
+            "-framework Foundation"
+        )
+    endif()
+endif()
+
+
+target_include_directories(${EXECUTABLE_NAME} PRIVATE 
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/sokol"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/sokol/util"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/dcimgui/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/vecmath"
 )
 
 # Dealing with assets

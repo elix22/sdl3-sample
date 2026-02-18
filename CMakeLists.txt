@@ -39,7 +39,7 @@ endif()
 # Add your sources to the target
 target_sources(${EXECUTABLE_NAME} 
 PRIVATE 
-    src/main.cpp
+    src/testcamera.c
     src/iosLaunchScreen.storyboard
 )
 # What is iosLaunchScreen.storyboard? This file describes what Apple's mobile platforms
@@ -98,6 +98,7 @@ target_link_libraries(${EXECUTABLE_NAME} PUBLIC
 	SDL3_ttf::SDL3_ttf      # remove if you are not using SDL_ttf
 	SDL3_mixer::SDL3_mixer  # remove if you are not using SDL_mixer
 	SDL3_image::SDL3_image	# remove if you are not using SDL_image
+	SDL3::SDL3_test         # SDL test utilities
     SDL3::SDL3              # If using satelite libraries, SDL must be the last item in the list. 
 )
 

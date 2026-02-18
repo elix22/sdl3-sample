@@ -32,6 +32,8 @@
 	<true/>
 	<key>NSSupportsSuddenTermination</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to capture video.</string>
 	<key>CFBundleIconFile</key>
 	<string>logo.png</string>
     <key>UIRequiresFullScreen</key>

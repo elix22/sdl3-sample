@@ -11,6 +11,11 @@ set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}" CACHE INTERNAL "")
 # Declare the project
 project(sdl-min)
 
+# Set C++ standard globally (required by Abseil and MediaPipe)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 if ((APPLE AND NOT CMAKE_SYSTEM_NAME MATCHES "Darwin") OR EMSCRIPTEN)
     set(BUILD_SHARED_LIBS OFF CACHE INTERNAL "")    # Disable shared builds on platforms where it does not make sense to use them
     set(SDL_SHARED OFF)
@@ -39,7 +44,7 @@ endif()
 # Add your sources to the target
 target_sources(${EXECUTABLE_NAME} 
 PRIVATE 
-    src/testcamera.c
+    src/testcamera.cpp
     src/iosLaunchScreen.storyboard
 )
 # What is iosLaunchScreen.storyboard? This file describes what Apple's mobile platforms
@@ -93,6 +98,109 @@ set(SDLIMAGE_WEBP OFF)
 set(SDLIMAGE_PNG_LIBPNG OFF)    # SDL3 includes built-in support for loading PNGs. If you need more than what that supports, enable this option.
 add_subdirectory(SDL_image EXCLUDE_FROM_ALL)
 
+# Abseil (required by MediaPipe)
+set(ABSL_PROPAGATE_CXX_STD ON)
+add_subdirectory(external/abseil-cpp EXCLUDE_FROM_ALL)
+
+# mediapipe Integration
+# Add mediapipe include directory to enable includes like "mediapipe/framework/calculator_graph.h"
+target_include_directories(${EXECUTABLE_NAME} PRIVATE 
+    "${CMAKE_CURRENT_SOURCE_DIR}/external"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/abseil-cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/protobuf/src"
+     "${CMAKE_CURRENT_SOURCE_DIR}/external/glog/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/glog/include"
+)
+
+# Link mediapipe precompiled libraries based on platform
+if(APPLE)
+    if(IOS)
+        # iOS platform - Link MediaPipeUnity.framework
+        set(MEDIAPIPE_FRAMEWORK "${CMAKE_CURRENT_SOURCE_DIR}/external/mediapipe/libs/ios/MediaPipeUnity.framework")
+        if(EXISTS ${MEDIAPIPE_FRAMEWORK})
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${MEDIAPIPE_FRAMEWORK})
+            # Embed framework in the app bundle and set correct rpath
+            set_target_properties(${EXECUTABLE_NAME} PROPERTIES
+                XCODE_EMBED_FRAMEWORKS ${MEDIAPIPE_FRAMEWORK}
+                XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY ON
+                BUILD_WITH_INSTALL_RPATH TRUE
+                INSTALL_RPATH "@executable_path/Frameworks"
+            )
+            message(STATUS "mediapipe framework linked: ${MEDIAPIPE_FRAMEWORK}")
+        else()
+            message(WARNING "mediapipe framework not found: ${MEDIAPIPE_FRAMEWORK}")
+        endif()
+    else()
+        # macOS platform - Link libmediapipe_c.dylib
+        set(MEDIAPIPE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mediapipe/libs/osx")
+        set(MEDIAPIPE_LIB_SOURCE "${MEDIAPIPE_LIB_DIR}/libmediapipe_c.dylib")
+        set(MEDIAPIPE_LIB_FIXED "${CMAKE_BINARY_DIR}/libmediapipe_c_fixed.dylib")
+        
+        if(EXISTS ${MEDIAPIPE_LIB_SOURCE})
+            # Copy and fix the MediaPipe library install name before linking
+            add_custom_command(
+                OUTPUT ${MEDIAPIPE_LIB_FIXED}
+                COMMAND ${CMAKE_COMMAND} -E copy ${MEDIAPIPE_LIB_SOURCE} ${MEDIAPIPE_LIB_FIXED}
+                COMMAND install_name_tool -id "@executable_path/libmediapipe_c.dylib" ${MEDIAPIPE_LIB_FIXED}
+                DEPENDS ${MEDIAPIPE_LIB_SOURCE}
+                COMMENT "Preparing MediaPipe library with fixed install name"
+            )
+            
+            add_custom_target(fix_mediapipe_dylib ALL DEPENDS ${MEDIAPIPE_LIB_FIXED})
+            add_dependencies(${EXECUTABLE_NAME} fix_mediapipe_dylib)
+            
+            target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${MEDIAPIPE_LIB_FIXED})
+            
+            # Allow undefined symbols to be resolved at runtime from MediaPipe dylib
+            target_link_options(${EXECUTABLE_NAME} PRIVATE "-Wl,-undefined,dynamic_lookup")
+            
+            # Copy the fixed dylib to the app bundle and fix the executable's reference
+            add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${MEDIAPIPE_LIB_FIXED}
+                    $<TARGET_FILE_DIR:${EXECUTABLE_NAME}>/libmediapipe_c.dylib
+                COMMAND install_name_tool -change 
+                    "@rpath/libmediapipe_c.dylib"
+                    "@executable_path/libmediapipe_c.dylib"
+                    $<TARGET_FILE:${EXECUTABLE_NAME}>
+                COMMENT "Copying MediaPipe library and fixing executable reference"
+            )
+            
+            message(STATUS "MediaPipe library will be linked from: ${MEDIAPIPE_LIB_SOURCE}")
+        else()
+            message(WARNING "MediaPipe library not found: ${MEDIAPIPE_LIB_SOURCE}")
+        endif()
+    endif()
+elseif(ANDROID)
+    # Android platform - Link .so libraries based on architecture
+    set(MEDIAPIPE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mediapipe/libs/android/${ANDROID_ABI}")
+    
+    # Link MediaPipe and OpenCV using -L/-l so the linker records the bare SONAME
+    # (using IMPORTED targets with full paths causes libmain.so to embed the full
+    # path as DT_NEEDED, which the Android dynamic linker cannot resolve at runtime)
+    target_link_options(${EXECUTABLE_NAME} PRIVATE
+        "-L${MEDIAPIPE_LIB_DIR}"
+        "-lmediapipe_jni"
+        "-lopencv_java4"
+    )
+    
+    # Copy libraries to jniLibs for packaging into APK
+    set(JNI_LIBS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/android-project/app/src/main/jniLibs/${ANDROID_ABI}")
+    file(MAKE_DIRECTORY ${JNI_LIBS_DIR})
+    
+    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MEDIAPIPE_LIB_DIR}/libmediapipe_jni.so"
+            "${JNI_LIBS_DIR}/libmediapipe_jni.so"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${MEDIAPIPE_LIB_DIR}/libopencv_java4.so"
+            "${JNI_LIBS_DIR}/libopencv_java4.so"
+        COMMENT "Copying MediaPipe libraries to jniLibs for APK packaging"
+    )
+    
+    message(STATUS "MediaPipe Android libraries configured for ${ANDROID_ABI}")
+endif()
+
 # Link SDL to our executable. This also makes its include directory available to us. 
 target_link_libraries(${EXECUTABLE_NAME} PUBLIC 
 	SDL3_ttf::SDL3_ttf      # remove if you are not using SDL_ttf
@@ -101,6 +209,9 @@ target_link_libraries(${EXECUTABLE_NAME} PUBLIC
 	SDL3::SDL3_test         # SDL test utilities
     SDL3::SDL3              # If using satelite libraries, SDL must be the last item in the list. 
 )
+
+# NOTE: We do NOT link Abseil separately because MediaPipe library has Abseil embedded.
+# Linking both would cause ABI conflicts and crashes.
 
 # Dealing with assets
 # We have some non-code resources that our application needs in order to work. How we deal with those differs per platform.
@@ -174,6 +285,32 @@ set_target_properties(${EXECUTABLE_NAME} PROPERTIES
 	XCODE_ATTRIBUTE_CURRENTYEAR "${CURRENTYEAR}"
     RESOURCE "${RESOURCE_FILES}"
 )
+
+# Platform-specific code signing settings
+if(IOS)
+    # iOS requires code signing to install on devices
+    # Set your Apple Developer Team ID here (find it at developer.apple.com)
+    set(DEVELOPMENT_TEAM_ID "" CACHE STRING "Apple Developer Team ID for code signing")
+    
+    if(DEVELOPMENT_TEAM_ID)
+        set_target_properties(${EXECUTABLE_NAME} PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "Apple Development"
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${DEVELOPMENT_TEAM_ID}"
+            XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "YES"
+            XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "YES"
+        )
+        message(STATUS "iOS code signing enabled with team: ${DEVELOPMENT_TEAM_ID}")
+    else()
+        message(WARNING "No DEVELOPMENT_TEAM_ID set. iOS build will not be signable. Set with -DDEVELOPMENT_TEAM_ID=YourTeamID")
+    endif()
+else()
+    # Disable code signing for macOS
+    set_target_properties(${EXECUTABLE_NAME} PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
+        XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+    )
+endif()
 
 # on Visual Studio, set our app as the default project
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "${EXECUTABLE_NAME}")

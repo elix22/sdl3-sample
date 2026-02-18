@@ -38,8 +38,6 @@ static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
 static SDLTest_CommonState *state = NULL;
 static SDL_Camera *camera = NULL;
-static SDL_Texture *texture = NULL;
-static bool texture_updated = false;
 static SDL_Surface *frame_current = NULL;
 static SDL_CameraID front_camera = 0;
 static SDL_CameraID back_camera = 0;
@@ -331,11 +329,6 @@ static SDL_AppResult FlipCamera(void)
 
             SDL_CloseCamera(camera);
 
-            if (texture) {
-                SDL_DestroyTexture(texture);
-                texture = NULL;  /* will rebuild when new camera is approved. */
-            }
-
             PickCameraSpec(nextcam, &spec);
             camera = SDL_OpenCamera(nextcam, &spec);
             if (!camera) {
@@ -417,11 +410,9 @@ SDL_AppResult SDL_AppIterate(void *appstate)
         last_log_time = current_time;
     }
 
-    SDL_SetRenderDrawColor(renderer, 0x99, 0x99, 0x99, 255);
-    SDL_RenderClear(renderer);
+    int win_w = 0, win_h = 0;
+    SDL_GetRenderOutputSize(renderer, &win_w, &win_h);
 
-    int win_w, win_h;
-    SDL_FRect d;
     Uint64 timestampNS = 0;
     SDL_Surface *frame_next = camera ? SDL_AcquireCameraFrame(camera, &timestampNS) : NULL;
 
@@ -442,54 +433,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
          * But in case of 0-copy, it's needed to have the frame while using the texture.
          */
          frame_current = frame_next;
-         texture_updated = false;
-    }
-
-    if (frame_current) {
-        if (!texture ||
-            texture->w != frame_current->w || texture->h != frame_current->h) {
-            /* Resize the window to match */
-            SDL_SetWindowSize(window, frame_current->w, frame_current->h);
-
-            if (texture) {
-                SDL_DestroyTexture(texture);
-            }
-
-            SDL_Colorspace colorspace = SDL_GetSurfaceColorspace(frame_current);
-
-            /* Create texture with appropriate format */
-            SDL_PropertiesID props = SDL_CreateProperties();
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, frame_current->format);
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER, colorspace);
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STREAMING);
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, frame_current->w);
-            SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, frame_current->h);
-            texture = SDL_CreateTextureWithProperties(renderer, props);
-            SDL_DestroyProperties(props);
-            if (!texture) {
-                SDL_Log("Couldn't create texture: %s", SDL_GetError());
-                return SDL_APP_FAILURE;
-            }
-        }
-
-        /* Update SDL_Texture with last video frame (only once per new frame) */
-        if (frame_current && !texture_updated) {
-            SDL_UpdateTexture(texture, NULL, frame_current->pixels, frame_current->pitch);
-            nv12_camera_update(frame_current);
-            texture_updated = true;
-        }
-
-        // the image might be coming from a mobile device that provides images in only one orientation, but the
-        // device might be rotated to a different one (like an iPhone providing portrait images even if you hold
-        // the phone in landscape mode). The rotation is how far to rotate the image clockwise to put it right-side
-        // up, for how the user would expect it to be for how they are holding the device.
-        const float rotation = SDL_GetFloatProperty(SDL_GetSurfaceProperties(frame_current), SDL_PROP_SURFACE_ROTATION_FLOAT, 0.0f);
-        SDL_GetRenderOutputSize(renderer, &win_w, &win_h);
-        d.x = ((win_w - texture->w) / 2.0f);
-        d.y = ((win_h - texture->h) / 2.0f);
-        d.w = (float)texture->w;
-        d.h = (float)texture->h;
-        SDL_RenderTextureRotated(renderer, texture, NULL, &d, rotation, NULL, SDL_FLIP_NONE);
+         nv12_camera_update(frame_current);
     }
 
     /* !!! FIXME: Render a "flip" icon if front_camera and back_camera are both != 0. */
@@ -515,6 +459,5 @@ void SDL_AppQuit(void *appstate, SDL_AppResult result)
     sokol_shutdown();
     SDL_ReleaseCameraFrame(camera, frame_current);
     SDL_CloseCamera(camera);
-    SDL_DestroyTexture(texture);
     SDLTest_CommonQuit(state);
 }

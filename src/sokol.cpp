@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+
+
 //#error "Please define one of SOKOL_GLCORE, SOKOL_GLES3, SOKOL_D3D11, SOKOL_METAL, SOKOL_WGPU or SOKOL_DUMMY_BACKEND!"
 #if defined(__APPLE__)
     #define SOKOL_METAL
@@ -36,7 +38,6 @@
 #define SOKOL_LOG_IMPL
 #include "sokol_log.h"
 
-#include <SDL3/SDL_main.h>
 #include <SDL3/SDL_test.h>
 #include <SDL3/SDL_test_common.h>
 #if defined(__APPLE__)

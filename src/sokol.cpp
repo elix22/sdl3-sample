@@ -245,9 +245,10 @@ static struct {
     int         width;
     int         height;
     float       rotation;  // degrees from SDL_PROP_SURFACE_ROTATION_FLOAT
+    bool        mirror;   // true = flip U horizontally (front-facing camera)
 } s_cam = {};
 
-void nv12_camera_update(SDL_Surface* surface) {
+void nv12_camera_update(SDL_Surface* surface, bool mirror) {
     if (!surface) return;
 
     int w = surface->w;
@@ -256,7 +257,7 @@ void nv12_camera_update(SDL_Surface* surface) {
     const uint8_t* yPlane  = (const uint8_t*)surface->pixels;
     const uint8_t* uvPlane = yPlane + surface->pitch * h;
 
-    if (s_cam.width != w || s_cam.height != h || s_cam.rotation != rotation) {
+    if (s_cam.width != w || s_cam.height != h || s_cam.rotation != rotation || s_cam.mirror != mirror) {
         if (s_cam.width > 0) {
             sg_destroy_image(s_cam.y_img);
             sg_destroy_image(s_cam.uv_img);
@@ -268,6 +269,7 @@ void nv12_camera_update(SDL_Surface* surface) {
         s_cam.width    = w;
         s_cam.height   = h;
         s_cam.rotation = rotation;
+        s_cam.mirror   = mirror;
 
         // Y plane: R8, full resolution, streaming
         sg_image_desc y_desc{};
@@ -323,11 +325,14 @@ void nv12_camera_update(SDL_Surface* surface) {
         };
         int rot_idx = ((int)(rotation / 90.0f + 0.5f)) % 4;
         const float (*uv)[2] = uv_table[rot_idx];
+        // Mirror: flip U horizontally (1-u) for front-facing camera
+        float mu[4];
+        for (int i = 0; i < 4; i++) mu[i] = mirror ? (1.0f - uv[i][0]) : uv[i][0];
         float verts[] = {
-            -1.0f, -1.0f,  uv[0][0], uv[0][1],
-             1.0f, -1.0f,  uv[1][0], uv[1][1],
-             1.0f,  1.0f,  uv[2][0], uv[2][1],
-            -1.0f,  1.0f,  uv[3][0], uv[3][1],
+            -1.0f, -1.0f,  mu[0], uv[0][1],
+             1.0f, -1.0f,  mu[1], uv[1][1],
+             1.0f,  1.0f,  mu[2], uv[2][1],
+            -1.0f,  1.0f,  mu[3], uv[3][1],
         };
         sg_buffer_desc vbuf_desc{};
         vbuf_desc.data  = SG_RANGE(verts);

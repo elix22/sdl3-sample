@@ -31,7 +31,7 @@ void sokol_set_window(SDL_Window* window);
 
 void cube_init(void);
 void cube_frame(float w, float h,float t);
-void nv12_camera_update(SDL_Surface* surface);
+void nv12_camera_update(SDL_Surface* surface, bool mirror);
 void nv12_camera_draw(void);
 
 static SDL_Window *window = NULL;
@@ -440,7 +440,11 @@ SDL_AppResult SDL_AppIterate(void *appstate)
          * But in case of 0-copy, it's needed to have the frame while using the texture.
          */
          frame_current = frame_next;
-         nv12_camera_update(frame_current);
+         // Mirror for front-facing cameras, and also for UNKNOWN position (e.g. Mac FaceTime HD
+         // which doesn't report as FRONT_FACING but still faces the user and needs mirroring).
+         SDL_CameraPosition cam_pos = camera ? SDL_GetCameraPosition(SDL_GetCameraID(camera)) : SDL_CAMERA_POSITION_UNKNOWN;
+         bool mirror = (cam_pos == SDL_CAMERA_POSITION_FRONT_FACING || cam_pos == SDL_CAMERA_POSITION_UNKNOWN);
+         nv12_camera_update(frame_current, mirror);
     }
 
     /* !!! FIXME: Render a "flip" icon if front_camera and back_camera are both != 0. */

@@ -228,6 +228,7 @@ static struct {
     sg_bindings bind;
     int         width;
     int         height;
+    float       rotation;  // degrees from SDL_PROP_SURFACE_ROTATION_FLOAT
 } s_cam = {};
 
 void nv12_camera_update(SDL_Surface* surface) {
@@ -235,10 +236,11 @@ void nv12_camera_update(SDL_Surface* surface) {
 
     int w = surface->w;
     int h = surface->h;
+    float rotation = SDL_GetFloatProperty(SDL_GetSurfaceProperties(surface), SDL_PROP_SURFACE_ROTATION_FLOAT, 0.0f);
     const uint8_t* yPlane  = (const uint8_t*)surface->pixels;
     const uint8_t* uvPlane = yPlane + surface->pitch * h;
 
-    if (s_cam.width != w || s_cam.height != h) {
+    if (s_cam.width != w || s_cam.height != h || s_cam.rotation != rotation) {
         if (s_cam.width > 0) {
             sg_destroy_image(s_cam.y_img);
             sg_destroy_image(s_cam.uv_img);
@@ -247,8 +249,9 @@ void nv12_camera_update(SDL_Surface* surface) {
             sg_destroy_buffer(s_cam.bind.index_buffer);
             sg_destroy_pipeline(s_cam.pip);
         }
-        s_cam.width  = w;
-        s_cam.height = h;
+        s_cam.width    = w;
+        s_cam.height   = h;
+        s_cam.rotation = rotation;
 
         // Y plane: R8, full resolution, streaming
         sg_image_desc y_desc{};
@@ -291,13 +294,24 @@ void nv12_camera_update(SDL_Surface* surface) {
         smp_desc.wrap_v     = SG_WRAP_CLAMP_TO_EDGE;
         s_cam.smp = sg_make_sampler(&smp_desc);
 
-        // Fullscreen quad: two triangles covering NDC [-1,1]
-        // UV y=1 at bottom in NDC, y=0 at top → matches top-down scanline order
+        // Fullscreen quad UVs baked with surface rotation.
+        // SDL_PROP_SURFACE_ROTATION_FLOAT = degrees to rotate CW to get image right-side-up.
+        // We rotate the UV assignment around the 4 corners accordingly.
+        // NDC vertex order: BL, BR, TR, TL
+        // UV corners at rot=0: BL=(0,1), BR=(1,1), TR=(1,0), TL=(0,0)
+        static const float uv_table[4][4][2] = {
+            {{0,1},{1,1},{1,0},{0,0}},  // rot=0
+            {{1,1},{1,0},{0,0},{0,1}},  // rot=90
+            {{1,0},{0,0},{0,1},{1,1}},  // rot=180
+            {{0,0},{0,1},{1,1},{1,0}},  // rot=270
+        };
+        int rot_idx = ((int)(rotation / 90.0f + 0.5f)) % 4;
+        const float (*uv)[2] = uv_table[rot_idx];
         float verts[] = {
-            -1.0f, -1.0f,  0.0f, 1.0f,
-             1.0f, -1.0f,  1.0f, 1.0f,
-             1.0f,  1.0f,  1.0f, 0.0f,
-            -1.0f,  1.0f,  0.0f, 0.0f,
+            -1.0f, -1.0f,  uv[0][0], uv[0][1],
+             1.0f, -1.0f,  uv[1][0], uv[1][1],
+             1.0f,  1.0f,  uv[2][0], uv[2][1],
+            -1.0f,  1.0f,  uv[3][0], uv[3][1],
         };
         sg_buffer_desc vbuf_desc{};
         vbuf_desc.data  = SG_RANGE(verts);

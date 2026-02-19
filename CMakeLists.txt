@@ -230,6 +230,8 @@ set_target_properties(${EXECUTABLE_NAME} PROPERTIES
     XCODE_ATTRIBUTE_BUNDLE_IDENTIFIER "com.ravbug.sdl3-sample"
 	XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.ravbug.sdl3-sample"
 	XCODE_ATTRIBUTE_CURRENTYEAR "${CURRENTYEAR}"
+	# Target both iPhone (1) and iPad (2) — without this iPad runs in iPhone compat mode
+	XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
     RESOURCE "${RESOURCE_FILES}"
 )
 

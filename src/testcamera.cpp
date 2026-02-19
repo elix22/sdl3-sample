@@ -135,6 +135,16 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 
     state->num_windows = 1;
 
+    // Mobile: fill the screen. Desktop: start at a reasonable size.
+#if (defined(__APPLE__) && TARGET_OS_IOS) || defined(__ANDROID__)
+    state->window_flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    state->window_w = 0;  // 0 = let SDL use the display size (required for iPad)
+    state->window_h = 0;
+#else
+    state->window_w = 1280;
+    state->window_h = 720;
+#endif
+
     // Configure graphics backend before window creation
 #if defined(__APPLE__)
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
@@ -405,7 +415,7 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     }
 
      int width, height;
-     SDL_GetWindowSize(window, &width, &height);
+     SDL_GetWindowSizeInPixels(window, &width, &height);
 
     Uint64 timestampNS = 0;
     SDL_Surface *frame_next = camera ? SDL_AcquireCameraFrame(camera, &timestampNS) : NULL;

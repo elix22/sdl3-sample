@@ -444,11 +444,16 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     }
 
     /* !!! FIXME: Render a "flip" icon if front_camera and back_camera are both != 0. */
+    static Uint64 last_frame_time = 0;
+    Uint64 now = SDL_GetTicks();
+    float delta_time = (last_frame_time > 0) ? (float)(now - last_frame_time) / 1000.0f : (1.0f / 60.0f);
+    last_frame_time = now;
+
     if(width > 0 && height > 0)
     {
         sokol_begin_pass();
         nv12_camera_draw();  // background: NV12 camera quad
-        cube_frame(width,height,1.0f / 60.0f);
+        cube_frame(width, height, delta_time);
         sokol_commit();
     }
 

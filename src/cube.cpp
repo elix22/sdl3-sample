@@ -99,7 +99,7 @@ void cube_init(void) {
 void cube_frame(float w , float h,float t)
 {
     if(w<= 0 || h <= 0)return;
-    t*=30;
+    t*=60;
     state.rx += 1.0f * t; state.ry += 2.0f * t;
     const cube_app_vs_params_t vs_params = compute_vsparams(w, h,state.rx, state.ry);
 
@@ -109,7 +109,7 @@ void cube_frame(float w , float h,float t)
     sg_range vs_range = SG_RANGE(vs_params);
     sg_apply_uniforms(UB_cube_app_vs_params, &vs_range);
     sg_draw(0, 36, 1);
-    sg_end_pass();
+  
   
 }
 

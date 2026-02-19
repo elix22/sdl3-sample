@@ -59,6 +59,7 @@ static void*          s_metal_device        = nullptr;  // id<MTLDevice>
 static void*          s_depth_stencil_tex   = nullptr;  // id<MTLTexture>
 static int            s_ds_tex_width        = 0;
 static int            s_ds_tex_height       = 0;
+static void*          s_autorelease_pool    = nullptr;  // NSAutoreleasePool, drained each frame
 
 static void* sdl_get_metal_device() {
     if (s_metal_device) return s_metal_device;
@@ -197,6 +198,12 @@ void sokol_init(void)
 
 void sokol_begin_pass(void)
 {
+#if defined(__APPLE__)
+    // Create a per-frame autorelease pool so Metal drawables/command buffers
+    // are released promptly instead of accumulating indefinitely.
+    s_autorelease_pool = ((void*(*)(void*, SEL))objc_msgSend)(
+        (void*)objc_getClass("NSAutoreleasePool"), sel_registerName("new"));
+#endif
     sg_pass pass = {0};
     pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
     pass.action.colors[0].clear_value = { 0.25f, 0.5f, 0.75f, 1.0f };
@@ -206,7 +213,16 @@ void sokol_begin_pass(void)
 
 void sokol_commit(void)
 {
+    sg_end_pass();
     sg_commit();
+#if defined(__APPLE__)
+    // Drain the per-frame autorelease pool — releases the current drawable,
+    // command buffer, and any other autoreleased Metal objects from this frame.
+    if (s_autorelease_pool) {
+        ((void(*)(void*, SEL))objc_msgSend)(s_autorelease_pool, sel_registerName("drain"));
+        s_autorelease_pool = nullptr;
+    }
+#endif
 }
 
 void sokol_shutdown(void)

@@ -35,7 +35,6 @@ void nv12_camera_update(SDL_Surface* surface);
 void nv12_camera_draw(void);
 
 static SDL_Window *window = NULL;
-static SDL_Renderer *renderer = NULL;
 static SDLTest_CommonState *state = NULL;
 static SDL_Camera *camera = NULL;
 static SDL_Surface *frame_current = NULL;
@@ -136,7 +135,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 
     state->num_windows = 1;
 
-    // Configure graphics backend before window/renderer creation
+    // Configure graphics backend before window creation
 #if defined(__APPLE__)
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "metal");
 #elif defined(__ANDROID__)
@@ -173,16 +172,11 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     SDL_Log("Window created successfully");
 
     // Initialize Sokol with the SDL window
-    // On non-Apple, SDLTest's OpenGL renderer already created the GL context — Sokol uses it directly
     sokol_set_window(window);
     sokol_init();
     cube_init();
 
-    renderer = state->renderers[0];
-    if (!renderer) {
-        SDL_Log("ERROR: Couldn't create renderer: %s", SDL_GetError());
-        return SDL_APP_FAILURE;
-    }
+
     SDL_Log("Renderer created successfully");
 
 #ifdef __ANDROID__
@@ -410,8 +404,8 @@ SDL_AppResult SDL_AppIterate(void *appstate)
         last_log_time = current_time;
     }
 
-    int win_w = 0, win_h = 0;
-    SDL_GetRenderOutputSize(renderer, &win_w, &win_h);
+     int width, height;
+     SDL_GetWindowSize(window, &width, &height);
 
     Uint64 timestampNS = 0;
     SDL_Surface *frame_next = camera ? SDL_AcquireCameraFrame(camera, &timestampNS) : NULL;
@@ -437,19 +431,17 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     }
 
     /* !!! FIXME: Render a "flip" icon if front_camera and back_camera are both != 0. */
-    if(win_w > 0 && win_h > 0)
+    if(width > 0 && height > 0)
     {
         sokol_begin_pass();
         nv12_camera_draw();  // background: NV12 camera quad
-        cube_frame(win_w,win_h,1.0f / 60.0f);
+        cube_frame(width,height,1.0f / 60.0f);
         sokol_commit();
     }
 
 #if !defined(__APPLE__)
     SDL_GL_SwapWindow(window);
 #endif
-
-    SDL_RenderPresent(renderer);
 
     return SDL_APP_CONTINUE;
 }

@@ -159,8 +159,8 @@ sg_environment sglue_environment(void)
 }
 
 sg_swapchain sglue_swapchain(void) {
-    sg_swapchain swapchain;
-    memset(&swapchain, 0, sizeof(swapchain));
+    sg_swapchain swapchain = {0};
+    // memset(&swapchain, 0, sizeof(swapchain));
 
     int w = 0, h = 0;
     if (s_sdl_window) SDL_GetWindowSizeInPixels(s_sdl_window, &w, &h);

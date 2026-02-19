@@ -141,6 +141,17 @@ if(APPLE)
     endif()
 endif()
 
+if(ANDROID)
+    # GLESv3 for GLES 3.0 symbols (glGenVertexArrays, glBindSampler, etc. used by Sokol)
+    # log provides __android_log_write used by sokol_log.h
+    target_link_libraries(${EXECUTABLE_NAME} PUBLIC
+        GLESv3
+        EGL
+        log
+        android
+    )
+endif()
+
 
 target_include_directories(${EXECUTABLE_NAME} PRIVATE 
     "${CMAKE_CURRENT_SOURCE_DIR}/external/sokol"
